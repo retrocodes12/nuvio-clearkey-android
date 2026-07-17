@@ -33,9 +33,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           APK=$(find app/build/outputs/apk -name '*.apk' | head -1)
-          cp "$APK" Nebula-1.2.0.apk
+          cp "$APK" Nebula-1.3.0.apk
           cp "$APK" Nebula.apk
-          gh release delete v1.2.0 -y --cleanup-tag 2>/dev/null || true
-          gh release create v1.2.0 Nebula-1.2.0.apk Nebula.apk \
-            --title "Nebula (Android phone + TV) v1.2.0" \
-            --notes "Adds a fullscreen button to the player (rotates to landscape + hides the system bars); leaving the player restores your normal orientation. One APK installs on both Android phones and Android TV. Install (phone): allow 'install unknown apps' and tap the APK. Install (TV): open the Downloader app and enter code 7664693 (or da.gd/nebulaapk) — or sideload via 'adb install'. Nebula.apk is a stable-named copy so releases/latest/download/Nebula.apk, code 7664693 and da.gd/nebulaapk always point at the newest build."
+          gh release delete v1.3.0 -y --cleanup-tag 2>/dev/null || true
+          gh release create v1.3.0 Nebula-1.3.0.apk Nebula.apk \
+            --title "Nebula (Android phone + TV) v1.3.0" \
+            --notes "UI redesign to match the rest of Nebula: poster grid with images, genre chips, skeleton loading, add-on cards with logos + remove button, and focus zoom/borders for TV D-pad navigation. Same dark/red look as the webOS and Windows apps. Install (phone): allow 'install unknown apps' and tap the APK. Install (TV): open the Downloader app and enter code 7664693 (or da.gd/nebulaapk) — or sideload via 'adb install'. Nebula.apk is a stable-named copy so releases/latest/download/Nebula.apk, code 7664693 and da.gd/nebulaapk always point at the newest build."

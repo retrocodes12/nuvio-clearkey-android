@@ -8,9 +8,9 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 
-data class Addon(val manifestUrl: String, val name: String, val base: String)
+data class Addon(val manifestUrl: String, val name: String, val base: String, val logo: String? = null)
 data class CatalogRef(val type: String, val id: String, val name: String, val genres: List<String>)
-data class MetaItem(val id: String, val type: String, val name: String, val poster: String?)
+data class MetaItem(val id: String, val type: String, val name: String, val poster: String?, val posterShape: String = "poster")
 data class StreamItem(val name: String, val title: String, val url: String)
 
 object Stremio {
@@ -38,7 +38,8 @@ object Stremio {
 
     suspend fun loadManifest(url: String): Pair<Addon, List<CatalogRef>> {
         val j = JSONObject(httpGetText(url))
-        val addon = Addon(url, j.optString("name", "Add-on"), baseOf(url))
+        val logo = j.optString("logo").ifEmpty { j.optString("icon") }.ifEmpty { null }
+        val addon = Addon(url, j.optString("name", "Add-on"), baseOf(url), logo)
         val cats = mutableListOf<CatalogRef>()
         val arr = j.optJSONArray("catalogs") ?: JSONArray()
         for (i in 0 until arr.length()) {
@@ -67,7 +68,8 @@ object Stremio {
         for (i in 0 until metas.length()) {
             val m = metas.getJSONObject(i)
             val poster = m.optString("poster").ifEmpty { null }
-            out.add(MetaItem(m.optString("id"), m.optString("type", c.type), m.optString("name", m.optString("id")), poster))
+            val shape = m.optString("posterShape").ifEmpty { "poster" }
+            out.add(MetaItem(m.optString("id"), m.optString("type", c.type), m.optString("name", m.optString("id")), poster, shape))
         }
         return out
     }
