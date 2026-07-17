@@ -150,7 +150,7 @@ private fun HomeScreen(onOpen: (Addon) -> Unit) {
     var status by remember { mutableStateOf("") }
 
     Column(Modifier.fillMaxSize().padding(20.dp)) {
-        Header("ClearKey Player", "Add a Stremio add-on, browse it, and play. Handles HLS, DASH, and DASH+ClearKey.")
+        Header("Nebula", "Add a Stremio add-on, browse it, and play. Handles HLS, DASH, and DASH+ClearKey.")
         OutlinedTextField(
             value = url, onValueChange = { url = it },
             label = { Text("Add-on manifest URL") },

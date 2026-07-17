@@ -33,8 +33,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           APK=$(find app/build/outputs/apk -name '*.apk' | head -1)
-          cp "$APK" ClearKeyPlayer-1.1.0.apk
-          gh release delete v1.1.0 -y --cleanup-tag 2>/dev/null || true
-          gh release create v1.1.0 ClearKeyPlayer-1.1.0.apk \
-            --title "ClearKey Player (Android phone + TV) v1.1.0" \
+          cp "$APK" Nebula-1.2.0.apk
+          gh release delete v1.2.0 -y --cleanup-tag 2>/dev/null || true
+          gh release create v1.2.0 Nebula-1.2.0.apk \
+            --title "Nebula (Android phone + TV) v1.2.0" \
             --notes "Adds a fullscreen button to the player (rotates to landscape + hides the system bars); leaving the player restores your normal orientation. One APK installs on both Android phones and Android TV. Install (phone): allow 'install unknown apps' and tap the APK. Install (TV): sideload via Downloader or 'adb install'."
