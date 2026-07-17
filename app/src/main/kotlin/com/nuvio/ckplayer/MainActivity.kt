@@ -1,6 +1,8 @@
 package com.nuvio.ckplayer
 
+import android.app.Activity
 import android.content.Context
+import android.content.pm.ActivityInfo
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -43,6 +45,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -251,6 +256,7 @@ private fun StreamsScreen(addon: Addon, item: MetaItem, onPlay: (StreamItem) -> 
 @Composable
 private fun PlayerScreen(url: String) {
     val context = LocalContext.current
+    val activity = context as? Activity
     var error by remember { mutableStateOf<String?>(null) }
     val exo = remember { ExoPlayer.Builder(context).build().apply { playWhenReady = true } }
 
@@ -279,7 +285,13 @@ private fun PlayerScreen(url: String) {
             override fun onPlayerError(e: PlaybackException) { error = "Playback error ${e.errorCodeName} (${e.errorCode})" }
         }
         exo.addListener(l)
-        onDispose { exo.removeListener(l); exo.release() }
+        onDispose {
+            exo.removeListener(l); exo.release()
+            activity?.let {
+                it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                setImmersive(it, false)
+            }
+        }
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
@@ -289,6 +301,14 @@ private fun PlayerScreen(url: String) {
                     player = exo
                     useController = true
                     setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
+                    setFullscreenButtonClickListener { isFull ->
+                        activity?.let {
+                            it.requestedOrientation =
+                                if (isFull) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                            setImmersive(it, isFull)
+                        }
+                    }
                 }
             },
             modifier = Modifier.fillMaxSize()
@@ -296,5 +316,17 @@ private fun PlayerScreen(url: String) {
         error?.let {
             Text(it, color = Color(0xFFFF6B6B), modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp))
         }
+    }
+}
+
+private fun setImmersive(activity: Activity, on: Boolean) {
+    val window = activity.window
+    WindowCompat.setDecorFitsSystemWindows(window, !on)
+    val controller = WindowCompat.getInsetsController(window, window.decorView)
+    if (on) {
+        controller.hide(WindowInsetsCompat.Type.systemBars())
+        controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+    } else {
+        controller.show(WindowInsetsCompat.Type.systemBars())
     }
 }
