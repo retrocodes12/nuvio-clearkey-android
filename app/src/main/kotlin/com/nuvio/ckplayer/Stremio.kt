@@ -21,6 +21,9 @@ object Stremio {
         conn.readTimeout = 20000
         conn.instanceFollowRedirects = true
         conn.setRequestProperty("Accept", "*/*")
+        // Identify the Nebula app so the addon serves direct ClearKey DASH cards
+        // (and skips the "Open in Nebula Player" launcher meant for other clients).
+        conn.setRequestProperty("X-Nebula-Client", "android")
         try {
             val code = conn.responseCode
             val stream = if (code in 200..299) conn.inputStream else conn.errorStream

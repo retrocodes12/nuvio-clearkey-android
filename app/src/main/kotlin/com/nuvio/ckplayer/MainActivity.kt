@@ -2,6 +2,7 @@ package com.nuvio.ckplayer
 
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -91,9 +92,30 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 class MainActivity : ComponentActivity() {
+    private val pendingPlay = mutableStateOf<PlayReq?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { AppRoot() }
+        pendingPlay.value = parsePlayIntent(intent)
+        setContent { AppRoot(pendingPlay.value) { pendingPlay.value = null } }
+    }
+
+    // singleTop: a deep link while the app is already open arrives here.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        parsePlayIntent(intent)?.let { pendingPlay.value = it }
+    }
+
+    // nebula://play?mpd=<manifest url>&t=<title>
+    private fun parsePlayIntent(intent: Intent?): PlayReq? {
+        if (intent?.action != Intent.ACTION_VIEW) return null
+        val data = intent.data ?: return null
+        if (!data.scheme.equals("nebula", ignoreCase = true)) return null
+        val mpd = data.getQueryParameter("mpd")?.trim().orEmpty()
+        if (mpd.isEmpty()) return null
+        val title = (data.getQueryParameter("t") ?: data.getQueryParameter("title") ?: "Nebula Sports").trim()
+        return PlayReq(mpd, title)
     }
 }
 
@@ -122,6 +144,9 @@ private sealed interface Screen {
     data class Streams(val addon: Addon, val item: MetaItem) : Screen
     data class Play(val url: String, val title: String) : Screen
 }
+
+/** A play request arriving from a nebula://play deep link. */
+data class PlayReq(val mpd: String, val title: String)
 
 // ---------- add-on persistence ----------
 private const val PREFS = "ckplayer"
@@ -152,13 +177,21 @@ private fun saveAddons(ctx: Context, list: List<Addon>) {
 }
 
 @Composable
-fun AppRoot() {
+fun AppRoot(playReq: PlayReq? = null, onConsumed: () -> Unit = {}) {
     MaterialTheme(colorScheme = DarkColors) {
         Surface(Modifier.fillMaxSize(), color = Bg) {
             var stack by remember { mutableStateOf(listOf<Screen>(Screen.Home)) }
             fun push(s: Screen) { stack = stack + s }
             fun pop() { if (stack.size > 1) stack = stack.dropLast(1) }
             BackHandler(enabled = stack.size > 1) { pop() }
+
+            // A deep-link play request jumps straight to the player; Back returns Home.
+            LaunchedEffect(playReq) {
+                if (playReq != null) {
+                    stack = listOf(Screen.Home, Screen.Play(playReq.mpd, playReq.title))
+                    onConsumed()
+                }
+            }
 
             when (val s = stack.last()) {
                 is Screen.Home -> HomeScreen(onOpen = { push(Screen.Catalog(it)) })
