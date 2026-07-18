@@ -33,9 +33,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           APK=$(find app/build/outputs/apk -name '*.apk' | head -1)
-          cp "$APK" Nebula-1.5.0.apk
+          cp "$APK" Nebula-1.6.0.apk
           cp "$APK" Nebula.apk
-          gh release delete v1.5.0 -y --cleanup-tag 2>/dev/null || true
-          gh release create v1.5.0 Nebula-1.5.0.apk Nebula.apk \
-            --title "Nebula (Android phone + TV) v1.5.0" \
-            --notes "In-app update check: Home now shows an 'Update available' card when a newer release exists on GitHub, with a one-tap Update button (dismissible per version). Install (phone): allow 'install unknown apps' and tap the APK. Install (TV): open the Downloader app and enter code 7664693 (or da.gd/nebulaapk) — or sideload via 'adb install'. Nebula.apk is a stable-named copy so releases/latest/download/Nebula.apk, code 7664693 and da.gd/nebulaapk always point at the newest build."
+          gh release delete v1.6.0 -y --cleanup-tag 2>/dev/null || true
+          gh release create v1.6.0 Nebula-1.6.0.apk Nebula.apk \
+            --title "Nebula (Android phone + TV) v1.6.0" \
+            --notes "Search: catalogs that support it now show a search bar — type a team, league, or channel and hit search to find events fast. Install (phone): allow 'install unknown apps' and tap the APK. Install (TV): open the Downloader app and enter code 7664693 (or da.gd/nebulaapk) — or sideload via 'adb install'. Nebula.apk is a stable-named copy so releases/latest/download/Nebula.apk, code 7664693 and da.gd/nebulaapk always point at the newest build."

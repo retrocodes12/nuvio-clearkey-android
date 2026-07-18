@@ -41,10 +41,13 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -72,6 +75,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -464,6 +468,8 @@ private fun CatalogScreen(addon: Addon, onBack: () -> Unit, onOpen: (MetaItem) -
     var catalogs by remember { mutableStateOf<List<CatalogRef>>(emptyList()) }
     var current by remember { mutableStateOf<CatalogRef?>(null) }
     var genre by remember { mutableStateOf<String?>(null) }
+    var query by remember { mutableStateOf("") }
+    var submitted by remember { mutableStateOf("") }
     var items by remember { mutableStateOf<List<MetaItem>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var status by remember { mutableStateOf("Loading…") }
@@ -473,22 +479,56 @@ private fun CatalogScreen(addon: Addon, onBack: () -> Unit, onOpen: (MetaItem) -
             .onSuccess { catalogs = it; current = it.firstOrNull(); if (it.isEmpty()) { status = "No catalogs."; loading = false } }
             .onFailure { status = "Failed: ${it.message}"; loading = false }
     }
-    LaunchedEffect(current, genre) {
-        val c = current ?: return@LaunchedEffect
-        loading = true; status = "Loading…"; items = emptyList()
-        runCatching { Stremio.loadCatalog(addon.base, c, genre) }
-            .onSuccess { items = it; status = if (it.isEmpty()) "No items." else "${it.size} items"; loading = false }
-            .onFailure { status = "Failed: ${it.message}"; loading = false }
+    LaunchedEffect(current, genre, submitted) {
+        val q = submitted.trim()
+        if (q.isNotEmpty()) {
+            val sc = if (current?.search == true) current else catalogs.firstOrNull { it.search }
+            if (sc == null) { items = emptyList(); status = "Search isn’t available here."; loading = false; return@LaunchedEffect }
+            loading = true; status = "Searching…"; items = emptyList()
+            runCatching { Stremio.loadCatalog(addon.base, sc, null, q) }
+                .onSuccess { items = it; status = if (it.isEmpty()) "No matches for “$q”." else "${it.size} result${if (it.size > 1) "s" else ""} for “$q”"; loading = false }
+                .onFailure { status = "Failed: ${it.message}"; loading = false }
+        } else {
+            val c = current ?: return@LaunchedEffect
+            loading = true; status = "Loading…"; items = emptyList()
+            runCatching { Stremio.loadCatalog(addon.base, c, genre) }
+                .onSuccess { items = it; status = if (it.isEmpty()) "No items." else "${it.size} items"; loading = false }
+                .onFailure { status = "Failed: ${it.message}"; loading = false }
+        }
     }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp).padding(top = 16.dp)) {
         BackBar(addon.name, status, onBack)
+        if (catalogs.any { it.search }) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = { Text("Search ${addon.name}", color = MutedC) },
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = MutedC) },
+                trailingIcon = {
+                    if (query.isNotEmpty() || submitted.isNotEmpty()) {
+                        IconButton(onClick = { query = ""; submitted = "" }) {
+                            Icon(Icons.Filled.Close, contentDescription = "Clear search", tint = MutedC)
+                        }
+                    }
+                },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { submitted = query.trim() }),
+                shape = RoundedCornerShape(10.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Red, unfocusedBorderColor = LineC, cursorColor = Red,
+                    focusedTextColor = TextC, unfocusedTextColor = TextC,
+                ),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+            )
+        }
         if (catalogs.size > 1) {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
-                items(catalogs) { c -> Chip(c.name, c == current) { current = c; genre = null } }
+                items(catalogs) { c -> Chip(c.name, c == current && submitted.isEmpty()) { current = c; genre = null; query = ""; submitted = "" } }
             }
         }
-        current?.genres?.take(20)?.let { gs ->
+        if (submitted.isEmpty()) current?.genres?.take(20)?.let { gs ->
             if (gs.isNotEmpty()) LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 10.dp)) {
                 items(gs) { g -> Chip(g, genre == g) { genre = if (genre == g) null else g } }
             }

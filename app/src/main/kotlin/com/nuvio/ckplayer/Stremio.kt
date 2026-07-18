@@ -9,7 +9,7 @@ import java.net.URL
 import java.net.URLEncoder
 
 data class Addon(val manifestUrl: String, val name: String, val base: String, val logo: String? = null)
-data class CatalogRef(val type: String, val id: String, val name: String, val genres: List<String>)
+data class CatalogRef(val type: String, val id: String, val name: String, val genres: List<String>, val search: Boolean = false)
 data class MetaItem(val id: String, val type: String, val name: String, val poster: String?, val posterShape: String = "poster")
 data class StreamItem(val name: String, val title: String, val url: String)
 
@@ -51,22 +51,31 @@ object Stremio {
         for (i in 0 until arr.length()) {
             val c = arr.getJSONObject(i)
             val genres = mutableListOf<String>()
+            var supportsSearch = false
             val extra = c.optJSONArray("extra")
             if (extra != null) for (k in 0 until extra.length()) {
                 val e = extra.getJSONObject(k)
-                if (e.optString("name") == "genre") {
-                    val opts = e.optJSONArray("options")
-                    if (opts != null) for (o in 0 until opts.length()) genres.add(opts.getString(o))
+                when (e.optString("name")) {
+                    "genre" -> {
+                        val opts = e.optJSONArray("options")
+                        if (opts != null) for (o in 0 until opts.length()) genres.add(opts.getString(o))
+                    }
+                    "search" -> supportsSearch = true
                 }
             }
-            cats.add(CatalogRef(c.optString("type"), c.optString("id"), c.optString("name", c.optString("id")), genres))
+            val extraSupported = c.optJSONArray("extraSupported")
+            if (extraSupported != null) for (k in 0 until extraSupported.length()) {
+                if (extraSupported.getString(k) == "search") supportsSearch = true
+            }
+            cats.add(CatalogRef(c.optString("type"), c.optString("id"), c.optString("name", c.optString("id")), genres, supportsSearch))
         }
         return addon to cats
     }
 
-    suspend fun loadCatalog(base: String, c: CatalogRef, genre: String?): List<MetaItem> {
+    suspend fun loadCatalog(base: String, c: CatalogRef, genre: String?, query: String? = null): List<MetaItem> {
         var u = "$base/catalog/${enc(c.type)}/${enc(c.id)}"
-        if (!genre.isNullOrEmpty()) u += "/genre=${enc(genre)}"
+        if (!query.isNullOrEmpty()) u += "/search=${enc(query)}"
+        else if (!genre.isNullOrEmpty()) u += "/genre=${enc(genre)}"
         u += ".json"
         val j = JSONObject(httpGetText(u))
         val metas = j.optJSONArray("metas") ?: return emptyList()
