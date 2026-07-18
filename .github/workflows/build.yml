@@ -48,9 +48,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           APK=$(find app/build/outputs/apk/release -name '*.apk' | head -1)
-          cp "$APK" Nebula-1.8.0.apk
+          cp "$APK" Nebula-1.9.0.apk
           cp "$APK" Nebula.apk
-          gh release delete v1.8.0 -y --cleanup-tag 2>/dev/null || true
-          gh release create v1.8.0 Nebula-1.8.0.apk Nebula.apk \
-            --title "Nebula (Android phone + TV) v1.8.0" \
-            --notes "Auto-download updates: the update card now downloads the new version in the background the moment it appears, so it's ready to install with one tap (no browser, no waiting). Signed with the same permanent key as v1.7.0, so this and every future update installs over the top — no uninstall. (Only if you're on a pre-v1.7.0 build do you need ONE manual uninstall + reinstall to move onto the permanent key.) Install (phone): allow 'install unknown apps' and tap the APK. Install (TV): Downloader code 7664693 (or da.gd/nebulaapk). Nebula.apk is a stable-named copy so releases/latest/download/Nebula.apk, code 7664693 and da.gd/nebulaapk always point at the newest build."
+          gh release delete v1.9.0 -y --cleanup-tag 2>/dev/null || true
+          gh release create v1.9.0 Nebula-1.9.0.apk Nebula.apk \
+            --title "Nebula (Android phone + TV) v1.9.0" \
+            --notes "Quality picker: while playing a stream that offers more than one resolution, a gear button (top-right) lets you lock the video to a specific quality — 1080p, 720p, 480p and so on — or leave it on Auto. Handy for saving data, or forcing max quality on a fast connection. The button only appears when a stream actually has multiple qualities. Signed with the same permanent key as v1.7.0, so this and every future update installs over the top — no uninstall. (Only if you're on a pre-v1.7.0 build do you need ONE manual uninstall + reinstall to move onto the permanent key.) Install (phone): allow 'install unknown apps' and tap the APK. Install (TV): Downloader code 7664693 (or da.gd/nebulaapk). Nebula.apk is a stable-named copy so releases/latest/download/Nebula.apk, code 7664693 and da.gd/nebulaapk always point at the newest build."

@@ -88,9 +88,11 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.TrackSelectionDialogBuilder
 import coil.compose.AsyncImage
 import kotlinx.coroutines.launch
 import java.io.File
@@ -672,6 +674,7 @@ private fun PlayerScreen(url: String) {
     val context = LocalContext.current
     val activity = context as? Activity
     var error by remember { mutableStateOf<String?>(null) }
+    var videoQualityCount by remember { mutableStateOf(0) }
     val exo = remember { ExoPlayer.Builder(context).build().apply { playWhenReady = true } }
 
     LaunchedEffect(url) {
@@ -697,6 +700,17 @@ private fun PlayerScreen(url: String) {
     DisposableEffect(Unit) {
         val l = object : Player.Listener {
             override fun onPlayerError(e: PlaybackException) { error = "Playback error ${e.errorCodeName} (${e.errorCode})" }
+            override fun onTracksChanged(tracks: Tracks) {
+                var n = 0
+                for (g in tracks.groups) {
+                    if (g.type == C.TRACK_TYPE_VIDEO) {
+                        for (i in 0 until g.length) {
+                            if (g.isTrackSupported(i) && g.getTrackFormat(i).height > 0) n++
+                        }
+                    }
+                }
+                videoQualityCount = n
+            }
         }
         exo.addListener(l)
         onDispose {
@@ -727,6 +741,27 @@ private fun PlayerScreen(url: String) {
             },
             modifier = Modifier.fillMaxSize()
         )
+        // Quality picker — only when the stream actually has more than one video quality.
+        if (videoQualityCount >= 2) {
+            IconButton(
+                onClick = {
+                    runCatching {
+                        TrackSelectionDialogBuilder(context, "Quality", exo, C.TRACK_TYPE_VIDEO)
+                            .setAllowAdaptiveSelections(true)
+                            .setShowDisableOption(false)
+                            .build()
+                            .show()
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(12.dp)
+                    .size(44.dp)
+                    .background(Color(0xB3000000), CircleShape)
+            ) {
+                Text("⚙", color = Color.White, fontSize = 20.sp)
+            }
+        }
         error?.let {
             Text(it, color = Color(0xFFFF6B6B), modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp))
         }
