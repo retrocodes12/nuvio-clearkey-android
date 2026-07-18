@@ -36,7 +36,12 @@ jobs:
           NEBULA_STORE_PASSWORD: ${{ secrets.NEBULA_STORE_PASSWORD }}
           NEBULA_KEY_ALIAS: ${{ secrets.NEBULA_KEY_ALIAS }}
           NEBULA_KEY_PASSWORD: ${{ secrets.NEBULA_KEY_PASSWORD }}
-        run: gradle assembleRelease --no-daemon --stacktrace
+        run: >
+          gradle assembleRelease --no-daemon --stacktrace
+          "-PnebulaKeystore=$NEBULA_KEYSTORE_FILE"
+          "-PnebulaStorePassword=$NEBULA_STORE_PASSWORD"
+          "-PnebulaKeyAlias=$NEBULA_KEY_ALIAS"
+          "-PnebulaKeyPassword=$NEBULA_KEY_PASSWORD"
 
       - name: Publish release
         env:

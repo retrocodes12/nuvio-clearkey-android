@@ -16,17 +16,18 @@ android {
         versionName = "1.7.0"
     }
 
-    // providers.environmentVariable (NOT System.getenv) so the value is read from
-    // the real build environment, not a reused Gradle daemon's stale one.
-    val keystorePath = providers.environmentVariable("NEBULA_KEYSTORE_FILE").orNull
+    // Read signing config from Gradle -P properties (passed explicitly on the CI
+    // command line) — reliably seen by findProperty regardless of daemon/env.
+    val keystorePath = (project.findProperty("nebulaKeystore") as String?)?.takeIf { it.isNotBlank() }
+    logger.lifecycle("Nebula release signing: keystore ${if (keystorePath != null) "PRESENT -> fixed release key" else "ABSENT -> debug fallback"}")
 
     signingConfigs {
         create("release") {
             if (keystorePath != null) {
                 storeFile = file(keystorePath)
-                storePassword = providers.environmentVariable("NEBULA_STORE_PASSWORD").orNull
-                keyAlias = providers.environmentVariable("NEBULA_KEY_ALIAS").orNull
-                keyPassword = providers.environmentVariable("NEBULA_KEY_PASSWORD").orNull
+                storePassword = project.findProperty("nebulaStorePassword") as String?
+                keyAlias = project.findProperty("nebulaKeyAlias") as String?
+                keyPassword = project.findProperty("nebulaKeyPassword") as String?
             }
         }
     }
