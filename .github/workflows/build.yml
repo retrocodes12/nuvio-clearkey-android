@@ -48,9 +48,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           APK=$(find app/build/outputs/apk/release -name '*.apk' | head -1)
-          cp "$APK" Nebula-1.9.0.apk
+          cp "$APK" Nebula-1.10.0.apk
           cp "$APK" Nebula.apk
-          gh release delete v1.9.0 -y --cleanup-tag 2>/dev/null || true
-          gh release create v1.9.0 Nebula-1.9.0.apk Nebula.apk \
-            --title "Nebula (Android phone + TV) v1.9.0" \
-            --notes "Quality picker: while playing a stream that offers more than one resolution, a gear button (top-right) lets you lock the video to a specific quality — 1080p, 720p, 480p and so on — or leave it on Auto. Handy for saving data, or forcing max quality on a fast connection. The button only appears when a stream actually has multiple qualities. Signed with the same permanent key as v1.7.0, so this and every future update installs over the top — no uninstall. (Only if you're on a pre-v1.7.0 build do you need ONE manual uninstall + reinstall to move onto the permanent key.) Install (phone): allow 'install unknown apps' and tap the APK. Install (TV): Downloader code 7664693 (or da.gd/nebulaapk). Nebula.apk is a stable-named copy so releases/latest/download/Nebula.apk, code 7664693 and da.gd/nebulaapk always point at the newest build."
+          gh release delete v1.10.0 -y --cleanup-tag 2>/dev/null || true
+          gh release create v1.10.0 Nebula-1.10.0.apk Nebula.apk \
+            --title "Nebula (Android phone + TV) v1.10.0" \
+            --notes "Touch gestures on phones: double-tap the right side of the video to skip 10s forward, the left side to go 10s back (keep tapping to stack 20s, 30s, ...), and swipe horizontally to scrub through the stream with a live position preview. Plain tap still shows the controls, and TV remote behavior is unchanged. Signed with the same permanent key as v1.7.0, so this and every future update installs over the top — no uninstall. (Only if you're on a pre-v1.7.0 build do you need ONE manual uninstall + reinstall to move onto the permanent key.) Install (phone): allow 'install unknown apps' and tap the APK. Install (TV): Downloader code 7664693 (or da.gd/nebulaapk). Nebula.apk is a stable-named copy so releases/latest/download/Nebula.apk, code 7664693 and da.gd/nebulaapk always point at the newest build."

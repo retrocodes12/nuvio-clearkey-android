@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.os.Bundle
+import android.view.View
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -18,6 +19,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -72,6 +75,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -94,7 +98,9 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.TrackSelectionDialogBuilder
 import coil.compose.AsyncImage
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
@@ -675,7 +681,28 @@ private fun PlayerScreen(url: String) {
     val activity = context as? Activity
     var error by remember { mutableStateOf<String?>(null) }
     var videoQualityCount by remember { mutableStateOf(0) }
+    var controllerVisible by remember { mutableStateOf(true) }
+    var playerViewRef by remember { mutableStateOf<PlayerView?>(null) }
+    var skipFlash by remember { mutableStateOf<Triple<Int, Int, Long>?>(null) } // zone (-1/+1), total secs, stamp
+    var dragSeek by remember { mutableStateOf<Pair<Long, Long>?>(null) }        // target ms, delta ms
     val exo = remember { ExoPlayer.Builder(context).build().apply { playWhenReady = true } }
+
+    fun seekBy(deltaMs: Long) {
+        var t = exo.currentPosition + deltaMs
+        if (t < 0) t = 0
+        val dur = exo.duration
+        if (dur != C.TIME_UNSET && t > dur) t = dur
+        exo.seekTo(t)
+    }
+    fun doSkip(zone: Int) {
+        seekBy(zone * 10_000L)
+        val now = System.currentTimeMillis()
+        val prev = skipFlash
+        // Rapid re-taps on the same side accumulate (10s, 20s, 30s…) like YouTube.
+        val total = if (prev != null && prev.first == zone && now - prev.third < 1200) prev.second + 10 else 10
+        skipFlash = Triple(zone, total, now)
+    }
+    LaunchedEffect(skipFlash) { if (skipFlash != null) { delay(800); skipFlash = null } }
 
     LaunchedEffect(url) {
         runCatching {
@@ -729,6 +756,10 @@ private fun PlayerScreen(url: String) {
                     player = exo
                     useController = true
                     setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
+                    setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { v ->
+                        controllerVisible = (v == View.VISIBLE)
+                    })
+                    playerViewRef = this
                     setFullscreenButtonClickListener { isFull ->
                         activity?.let {
                             it.requestedOrientation =
@@ -741,6 +772,49 @@ private fun PlayerScreen(url: String) {
             },
             modifier = Modifier.fillMaxSize()
         )
+        // Touch gestures (phones): double-tap left/right = ±10s, horizontal swipe = seek,
+        // plain tap = show controls. Mounted only while the controller is hidden so the
+        // controller's own buttons stay tappable; remote/D-pad (TV) is unaffected.
+        if (!controllerVisible) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onTap = { pos ->
+                                val zone = tapZone(pos.x, size.width)
+                                val f = skipFlash
+                                if (zone != 0 && f != null && f.first == zone &&
+                                    System.currentTimeMillis() - f.third < 900
+                                ) doSkip(zone) // a quick 3rd/4th tap keeps skipping
+                                else playerViewRef?.showController()
+                            },
+                            onDoubleTap = { pos ->
+                                val zone = tapZone(pos.x, size.width)
+                                if (zone != 0) doSkip(zone) else playerViewRef?.showController()
+                            }
+                        )
+                    }
+                    .pointerInput(Unit) {
+                        var base = 0L
+                        var accum = 0f
+                        detectHorizontalDragGestures(
+                            onDragStart = { base = exo.currentPosition; accum = 0f },
+                            onHorizontalDrag = { change, dragAmount ->
+                                change.consume()
+                                accum += dragAmount
+                                var t = base + (accum / size.width * 90_000f).toLong() // full-width swipe ≈ 90s
+                                if (t < 0) t = 0
+                                val dur = exo.duration
+                                if (dur != C.TIME_UNSET && t > dur) t = dur
+                                dragSeek = Pair(t, t - base)
+                            },
+                            onDragEnd = { dragSeek?.let { exo.seekTo(it.first) }; dragSeek = null },
+                            onDragCancel = { dragSeek = null }
+                        )
+                    }
+            )
+        }
         // Quality picker — only when the stream actually has more than one video quality.
         if (videoQualityCount >= 2) {
             IconButton(
@@ -762,10 +836,46 @@ private fun PlayerScreen(url: String) {
                 Text("⚙", color = Color.White, fontSize = 20.sp)
             }
         }
+        // Transient ±10s indicator on the tapped side.
+        skipFlash?.let { f ->
+            Text(
+                (if (f.first > 0) "⏩ " else "⏪ ") + "${f.second}s",
+                color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .align(if (f.first > 0) Alignment.CenterEnd else Alignment.CenterStart)
+                    .padding(horizontal = 44.dp)
+                    .background(Color(0x8C000000), RoundedCornerShape(24.dp))
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
+            )
+        }
+        // Live seek preview while swiping: target position + signed delta.
+        dragSeek?.let { d ->
+            Text(
+                fmtTime(d.first) + "  (" + (if (d.second >= 0) "+" else "−") + fmtTime(abs(d.second)) + ")",
+                color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .background(Color(0x8C000000), RoundedCornerShape(24.dp))
+                    .padding(horizontal = 18.dp, vertical = 12.dp)
+            )
+        }
         error?.let {
             Text(it, color = Color(0xFFFF6B6B), modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp))
         }
     }
+}
+
+/** Which double-tap zone an x position falls in: -1 left, +1 right, 0 middle (dead zone). */
+private fun tapZone(x: Float, width: Int): Int = when {
+    x < width * 0.35f -> -1
+    x > width * 0.65f -> 1
+    else -> 0
+}
+
+private fun fmtTime(ms: Long): String {
+    val s = (ms / 1000).coerceAtLeast(0)
+    return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, (s % 3600) / 60, s % 60)
+    else "%d:%02d".format(s / 60, s % 60)
 }
 
 private fun setImmersive(activity: Activity, on: Boolean) {
