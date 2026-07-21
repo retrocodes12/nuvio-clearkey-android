@@ -169,8 +169,8 @@ private sealed interface Screen {
 private class CatRow(val addon: Addon, val catalog: CatalogRef, val items: List<MetaItem>)
 
 /** Session cache of addon manifests (Home and Search both need them). */
-private val manifestCache = mutableMapOf<String, Pair<Addon, List<CatalogRef>>>()
-private suspend fun manifestFor(url: String): Pair<Addon, List<CatalogRef>> =
+private val manifestCache = mutableMapOf<String, ManifestInfo>()
+private suspend fun manifestFor(url: String): ManifestInfo =
     manifestCache[url] ?: Stremio.loadManifest(url).also { manifestCache[url] = it }
 
 /** Home tab state, hoisted to AppRoot so rows survive navigating into a stream. */
@@ -574,7 +574,7 @@ private fun HomeScreen(
         st.rows = emptyList()
         for (a in addons) {
             runCatching {
-                val cats = manifestFor(a.manifestUrl).second
+                val cats = manifestFor(a.manifestUrl).catalogs
                 for (c in cats.take(3)) {
                     runCatching {
                         val items = Stremio.loadCatalog(a.base, c, null).take(15)
@@ -675,7 +675,7 @@ private fun SearchScreen(st: SearchUiState, onOpen: (Addon, MetaItem) -> Unit) {
         st.sections = emptyList()
         for (a in loadAddons(ctx)) {
             runCatching {
-                val cats = manifestFor(a.manifestUrl).second
+                val cats = manifestFor(a.manifestUrl).catalogs
                 val sc = cats.firstOrNull { it.search } ?: return@runCatching
                 val items = Stremio.loadCatalog(a.base, sc, null, q)
                 if (items.isNotEmpty()) { out.add(CatRow(a, sc, items)); st.sections = out.toList() }
@@ -784,7 +784,7 @@ private fun AddonsScreen(onOpen: (Addon) -> Unit, onAddonsChanged: () -> Unit) {
                             }
                             status = "Adding…"; statusErr = false
                             scope.launch {
-                                runCatching { Stremio.loadManifest(u).first }.onSuccess { a ->
+                                runCatching { Stremio.loadManifest(u).addon }.onSuccess { a ->
                                     val list = (addons.filterNot { it.manifestUrl == a.manifestUrl } + a)
                                     saveAddons(ctx, list); addons = list; url = ""; onAddonsChanged()
                                     status = "Added ${a.name}"; statusErr = false
@@ -867,7 +867,7 @@ private fun CatalogScreen(addon: Addon, initial: CatalogRef?, st: CatalogUiState
             if (want != null && current != want) { current = want; genre = null; query = ""; submitted = "" }
             return@LaunchedEffect
         }
-        runCatching { Stremio.loadManifest(addon.manifestUrl).second }
+        runCatching { Stremio.loadManifest(addon.manifestUrl).catalogs }
             .onSuccess {
                 catalogs = it
                 current = initial?.let { i -> it.firstOrNull { c -> c.type == i.type && c.id == i.id } } ?: it.firstOrNull()
@@ -963,18 +963,46 @@ private fun CatalogScreen(addon: Addon, initial: CatalogRef?, st: CatalogUiState
 }
 
 // ---------- streams ----------
+// Stremio semantics: catalog add-ons and stream add-ons are separate. Ask the
+// add-on the item came from PLUS every other installed add-on whose manifest
+// serves streams for this type/id, and show the answers grouped per add-on.
 @Composable
 private fun StreamsScreen(addon: Addon, item: MetaItem, onBack: () -> Unit, onPlay: (StreamItem) -> Unit) {
-    var streams by remember { mutableStateOf<List<StreamItem>>(emptyList()) }
+    var sections by remember { mutableStateOf<List<Pair<String, List<StreamItem>>>>(emptyList()) }
     var status by remember { mutableStateOf("Loading streams…") }
+    val ctx = LocalContext.current
     LaunchedEffect(item) {
-        runCatching { Stremio.loadStreams(addon.base, item.type, item.id) }
-            .onSuccess { streams = it; status = if (it.isEmpty()) "No playable streams right now." else "${it.size} stream${if (it.size > 1) "s" else ""}" }
-            .onFailure { status = "Failed: ${it.message}" }
+        val order = listOf(addon) + loadAddons(ctx).filterNot { it.manifestUrl == addon.manifestUrl }
+        val out = mutableListOf<Pair<String, List<StreamItem>>>()
+        var failures = 0
+        for (a in order) {
+            runCatching {
+                // origin is always asked; others only if their manifest matches
+                if (a.manifestUrl != addon.manifestUrl &&
+                    !manifestFor(a.manifestUrl).canStream(item.type, item.id)) return@runCatching
+                val streams = Stremio.loadStreams(a.base, item.type, item.id)
+                if (streams.isNotEmpty()) {
+                    out.add(a.name to streams)
+                    sections = out.toList()
+                    val n = out.sumOf { it.second.size }
+                    status = "$n stream${if (n > 1) "s" else ""}" + (if (out.size > 1) " from ${out.size} add-ons" else "")
+                }
+            }.onFailure { failures++ }
+        }
+        if (sections.isEmpty()) {
+            status = if (failures == order.size) "Failed to load streams." else "No playable streams right now."
+        }
     }
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp).padding(top = 16.dp)) {
         BackBar(item.name, status, onBack)
         LazyColumn(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 20.dp)) {
+            sections.forEach { (addonName, streams) ->
+                if (sections.size > 1) item(key = "head/$addonName") {
+                    Text(
+                        addonName, color = TextC, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
             items(streams) { s ->
                 FocusCard(shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth(), onClick = { onPlay(s) }) {
                     Row(
@@ -996,6 +1024,7 @@ private fun StreamsScreen(addon: Addon, item: MetaItem, onBack: () -> Unit, onPl
                         }
                     }
                 }
+            }
             }
         }
     }

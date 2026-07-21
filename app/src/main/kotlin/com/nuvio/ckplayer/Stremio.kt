@@ -10,6 +10,24 @@ import java.net.URLEncoder
 
 data class Addon(val manifestUrl: String, val name: String, val base: String, val logo: String? = null)
 data class CatalogRef(val type: String, val id: String, val name: String, val genres: List<String>, val search: Boolean = false)
+
+/** Parsed manifest: the addon, its catalogs, and whether/what it serves as streams. */
+data class ManifestInfo(
+    val addon: Addon,
+    val catalogs: List<CatalogRef>,
+    val hasStreams: Boolean,
+    val streamTypes: List<String>?,
+    val streamIdPrefixes: List<String>?,
+) {
+    /** Stremio semantics: stream resource + matching type + matching id prefix (absent = match all). */
+    fun canStream(type: String, id: String): Boolean {
+        if (!hasStreams) return false
+        if (!streamTypes.isNullOrEmpty() && type !in streamTypes) return false
+        val p = streamIdPrefixes
+        if (!p.isNullOrEmpty()) return p.any { id.startsWith(it) }
+        return true
+    }
+}
 data class MetaItem(val id: String, val type: String, val name: String, val poster: String?, val posterShape: String = "poster")
 data class StreamItem(val name: String, val title: String, val url: String)
 
@@ -42,7 +60,10 @@ object Stremio {
 
     fun baseOf(manifestUrl: String): String = manifestUrl.replace(Regex("/manifest\\.json.*$"), "")
 
-    suspend fun loadManifest(url: String): Pair<Addon, List<CatalogRef>> {
+    private fun strList(a: JSONArray?): List<String>? =
+        a?.let { arr -> (0 until arr.length()).map { arr.getString(it) } }
+
+    suspend fun loadManifest(url: String): ManifestInfo {
         val j = JSONObject(httpGetText(url))
         val logo = j.optString("logo").ifEmpty { j.optString("icon") }.ifEmpty { null }
         val addon = Addon(url, j.optString("name", "Add-on"), baseOf(url), logo)
@@ -69,7 +90,25 @@ object Stremio {
             }
             cats.add(CatalogRef(c.optString("type"), c.optString("id"), c.optString("name", c.optString("id")), genres, supportsSearch))
         }
-        return addon to cats
+        // stream resource: either the plain string "stream" (scoped by top-level
+        // types/idPrefixes) or an object with its own types/idPrefixes
+        var hasStreams = false
+        var sTypes: List<String>? = null
+        var sPrefixes: List<String>? = null
+        val topTypes = strList(j.optJSONArray("types"))
+        val topPrefixes = strList(j.optJSONArray("idPrefixes"))
+        val res = j.optJSONArray("resources")
+        if (res != null) for (i in 0 until res.length()) {
+            when (val r = res.opt(i)) {
+                "stream" -> { hasStreams = true; sTypes = topTypes; sPrefixes = topPrefixes }
+                is JSONObject -> if (r.optString("name") == "stream") {
+                    hasStreams = true
+                    sTypes = strList(r.optJSONArray("types")) ?: topTypes
+                    sPrefixes = strList(r.optJSONArray("idPrefixes")) ?: topPrefixes
+                }
+            }
+        }
+        return ManifestInfo(addon, cats, hasStreams, sTypes, sPrefixes)
     }
 
     suspend fun loadCatalog(base: String, c: CatalogRef, genre: String?, query: String? = null): List<MetaItem> {

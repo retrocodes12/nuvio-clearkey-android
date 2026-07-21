@@ -48,9 +48,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           APK=$(find app/build/outputs/apk/release -name '*.apk' | head -1)
-          cp "$APK" Nebula-1.12.1.apk
+          cp "$APK" Nebula-1.13.0.apk
           cp "$APK" Nebula.apk
-          gh release delete v1.12.1 -y --cleanup-tag 2>/dev/null || true
-          gh release create v1.12.1 Nebula-1.12.1.apk Nebula.apk \
-            --title "Nebula (Android phone + TV) v1.12.1" \
-            --notes "Cleaner, flatter design: solid dark surfaces, white focus rings, red used sparingly - the content does the talking. Same Stremio-style tabs (Home / Search / Add-ons) and all player features. Signed with the same permanent key, so it installs over the top. Install (phone): allow 'install unknown apps' and tap the APK. Install (TV): Downloader code 7664693 (or da.gd/nebulaapk). Nebula.apk is a stable-named copy so releases/latest/download/Nebula.apk, code 7664693 and da.gd/nebulaapk always point at the newest build."
+          gh release delete v1.13.0 -y --cleanup-tag 2>/dev/null || true
+          gh release create v1.13.0 Nebula-1.13.0.apk Nebula.apk \
+            --title "Nebula (Android phone + TV) v1.13.0" \
+            --notes "Stream add-ons now work: opening an item asks EVERY installed add-on that serves streams for it (Stremio semantics) - so a catalog add-on plus a separate stream add-on combine as expected, with results grouped per add-on. Signed with the same permanent key, so it installs over the top. Install (phone): allow 'install unknown apps' and tap the APK. Install (TV): Downloader code 7664693 (or da.gd/nebulaapk). Nebula.apk is a stable-named copy so releases/latest/download/Nebula.apk, code 7664693 and da.gd/nebulaapk always point at the newest build."
