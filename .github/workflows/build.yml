@@ -48,9 +48,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           APK=$(find app/build/outputs/apk/release -name '*.apk' | head -1)
-          cp "$APK" Nebula-1.11.0.apk
+          cp "$APK" Nebula-1.12.0.apk
           cp "$APK" Nebula.apk
-          gh release delete v1.11.0 -y --cleanup-tag 2>/dev/null || true
-          gh release create v1.11.0 Nebula-1.11.0.apk Nebula.apk \
-            --title "Nebula (Android phone + TV) v1.11.0" \
-            --notes "A brand-new look: nebula-glow backdrop, glassy panels and cards, gradient buttons and play badges, and a red glow on focused items (TV). Same features underneath — search, quality picker, gestures, and the search-results fix from v1.10.1. Signed with the same permanent key, so it installs over the top — no uninstall. Install (phone): allow 'install unknown apps' and tap the APK. Install (TV): Downloader code 7664693 (or da.gd/nebulaapk). Nebula.apk is a stable-named copy so releases/latest/download/Nebula.apk, code 7664693 and da.gd/nebulaapk always point at the newest build."
+          gh release delete v1.12.0 -y --cleanup-tag 2>/dev/null || true
+          gh release create v1.12.0 Nebula-1.12.0.apk Nebula.apk \
+            --title "Nebula (Android phone + TV) v1.12.0" \
+            --notes "Stremio-style app structure: bottom tabs for Home / Search / Add-ons. Home shows every added add-on as poster rows the moment the app opens, Search runs one query across all your add-ons, and add-on management has its own tab. See-all opens the full catalog grid. All player features unchanged (quality picker, gestures, ClearKey). Signed with the same permanent key, so it installs over the top. Install (phone): allow 'install unknown apps' and tap the APK. Install (TV): Downloader code 7664693 (or da.gd/nebulaapk). Nebula.apk is a stable-named copy so releases/latest/download/Nebula.apk, code 7664693 and da.gd/nebulaapk always point at the newest build."

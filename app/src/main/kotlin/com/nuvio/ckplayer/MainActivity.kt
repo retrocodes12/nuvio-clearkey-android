@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -50,6 +51,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
@@ -85,6 +88,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -167,9 +171,41 @@ private val DarkColors = darkColorScheme(
 
 private sealed interface Screen {
     data object Home : Screen
-    data class Catalog(val addon: Addon) : Screen
+    data object Search : Screen
+    data object Addons : Screen
+    data class Catalog(val addon: Addon, val initial: CatalogRef? = null) : Screen
     data class Streams(val addon: Addon, val item: MetaItem) : Screen
     data class Play(val url: String, val title: String) : Screen
+}
+
+/** One catalog's worth of content, tagged with where it came from. */
+private class CatRow(val addon: Addon, val catalog: CatalogRef, val items: List<MetaItem>)
+
+/** Session cache of addon manifests (Home and Search both need them). */
+private val manifestCache = mutableMapOf<String, Pair<Addon, List<CatalogRef>>>()
+private suspend fun manifestFor(url: String): Pair<Addon, List<CatalogRef>> =
+    manifestCache[url] ?: Stremio.loadManifest(url).also { manifestCache[url] = it }
+
+/** Home tab state, hoisted to AppRoot so rows survive navigating into a stream. */
+private class HomeUiState {
+    var rows by mutableStateOf<List<CatRow>>(emptyList())
+    var loading by mutableStateOf(false)
+    var hasAddons by mutableStateOf(true)
+    var refreshKey by mutableStateOf(0)
+    var sig: String? = null
+    var builtAt = 0L
+    val listState = LazyListState()
+    fun invalidate() { sig = null; refreshKey++ }
+}
+
+/** Search tab state, hoisted for the same reason. */
+private class SearchUiState {
+    var query by mutableStateOf("")
+    var submitted by mutableStateOf("")
+    var sections by mutableStateOf<List<CatRow>>(emptyList())
+    var searching by mutableStateOf(false)
+    var searchedFor: String? = null
+    val listState = LazyListState()
 }
 
 /**
@@ -229,9 +265,15 @@ fun AppRoot(playReq: PlayReq? = null, onConsumed: () -> Unit = {}) {
         Surface(Modifier.fillMaxSize(), color = Bg) {
             var stack by remember { mutableStateOf(listOf<Screen>(Screen.Home)) }
             val catalogStates = remember { HashMap<String, CatalogUiState>() }
+            val homeState = remember { HomeUiState() }
+            val searchState = remember { SearchUiState() }
             fun push(s: Screen) { stack = stack + s }
             fun pop() { if (stack.size > 1) stack = stack.dropLast(1) }
-            BackHandler(enabled = stack.size > 1) { pop() }
+            fun setTab(s: Screen) { stack = listOf(s) }
+            // Back pops the stack; from a non-Home tab root it returns to Home.
+            BackHandler(enabled = stack.size > 1 || stack.last() != Screen.Home) {
+                if (stack.size > 1) pop() else setTab(Screen.Home)
+            }
 
             // Drop catalog state once its screen is no longer anywhere in the stack.
             LaunchedEffect(stack) {
@@ -266,16 +308,37 @@ fun AppRoot(playReq: PlayReq? = null, onConsumed: () -> Unit = {}) {
                     )
                 }
             ) {
-                when (val s = stack.last()) {
-                    is Screen.Home -> HomeScreen(onOpen = { push(Screen.Catalog(it)) })
-                    is Screen.Catalog -> CatalogScreen(
-                        s.addon,
-                        catalogStates.getOrPut(s.addon.manifestUrl) { CatalogUiState() },
-                        onBack = { pop() },
-                        onOpen = { push(Screen.Streams(s.addon, it)) },
-                    )
-                    is Screen.Streams -> StreamsScreen(s.addon, s.item, onBack = { pop() }, onPlay = { push(Screen.Play(it.url, it.name)) })
-                    is Screen.Play -> PlayerScreen(s.url)
+                val current = stack.last()
+                Column(Modifier.fillMaxSize()) {
+                    Box(Modifier.weight(1f)) {
+                        when (val s = current) {
+                            is Screen.Home -> HomeScreen(
+                                homeState,
+                                onOpen = { a, item -> push(Screen.Streams(a, item)) },
+                                onSeeAll = { a, c -> push(Screen.Catalog(a, c)) },
+                                onGoAddons = { setTab(Screen.Addons) },
+                            )
+                            is Screen.Search -> SearchScreen(
+                                searchState,
+                                onOpen = { a, item -> push(Screen.Streams(a, item)) },
+                            )
+                            is Screen.Addons -> AddonsScreen(
+                                onOpen = { push(Screen.Catalog(it)) },
+                                onAddonsChanged = { homeState.invalidate() },
+                            )
+                            is Screen.Catalog -> CatalogScreen(
+                                s.addon, s.initial,
+                                catalogStates.getOrPut(s.addon.manifestUrl) { CatalogUiState() },
+                                onBack = { pop() },
+                                onOpen = { push(Screen.Streams(s.addon, it)) },
+                            )
+                            is Screen.Streams -> StreamsScreen(s.addon, s.item, onBack = { pop() }, onPlay = { push(Screen.Play(it.url, it.name)) })
+                            is Screen.Play -> PlayerScreen(s.url)
+                        }
+                    }
+                    if (current == Screen.Home || current == Screen.Search || current == Screen.Addons) {
+                        BottomBar(current, onTab = { setTab(it) })
+                    }
                 }
             }
         }
@@ -345,6 +408,84 @@ private fun Chip(text: String, on: Boolean, onClick: () -> Unit) {
             .padding(horizontal = 16.dp, vertical = 9.dp)
     ) {
         Text(text, color = if (on) Color.White else Color(0xFFCFD3DA), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+/** One poster/landscape card — used by the catalog grid, Home rows, and Search. */
+@Composable
+private fun MetaCard(m: MetaItem, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    FocusCard(shape = RoundedCornerShape(12.dp), modifier = modifier, onClick = onClick) {
+        Column(Modifier.padding(2.dp)) {
+            Box(
+                Modifier.fillMaxWidth().aspectRatio(thumbRatio(m.posterShape))
+                    .clip(RoundedCornerShape(11.dp))
+                    .background(Brush.linearGradient(listOf(Color(0xFF1C1C24), Color(0xFF0D0D12))))
+                    .border(1.dp, Color(0x0FFFFFFF), RoundedCornerShape(11.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (m.poster != null) {
+                    AsyncImage(
+                        model = m.poster, contentDescription = m.name,
+                        contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    Text(
+                        m.name.filter { it.isLetterOrDigit() }.take(2).uppercase().ifEmpty { "••" },
+                        color = Color(0xFF3A3A45), fontSize = 22.sp, fontWeight = FontWeight.Black,
+                    )
+                }
+            }
+            Text(
+                m.name, color = Color(0xFFE8E8EA), fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 16.sp,
+                modifier = Modifier.padding(top = 7.dp, start = 2.dp, end = 2.dp),
+            )
+        }
+    }
+}
+
+/** Row header on Home/Search: "Addon · Catalog" with a See-all pill. */
+@Composable
+private fun RowHeader(title: String, sub: String?, seeAll: (() -> Unit)?) {
+    Row(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, color = TextC, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1,
+            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+        if (sub != null) Text(sub, color = MutedC, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp).weight(1f))
+        else Spacer(Modifier.weight(1f))
+        if (seeAll != null) Chip("See all ›", false, seeAll)
+    }
+}
+
+/** Bottom tab bar (Stremio-style): Home / Search / Add-ons. */
+@Composable
+private fun BottomBar(current: Screen, onTab: (Screen) -> Unit) {
+    Column(Modifier.fillMaxWidth().background(Color(0xF20A0A0E))) {
+        Box(Modifier.fillMaxWidth().height(1.dp).background(LineC))
+        Row(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+            TabItem("Home", Icons.Filled.Home, current == Screen.Home, Modifier.weight(1f)) { onTab(Screen.Home) }
+            TabItem("Search", Icons.Filled.Search, current == Screen.Search, Modifier.weight(1f)) { onTab(Screen.Search) }
+            TabItem("Add-ons", Icons.Filled.Extension, current == Screen.Addons, Modifier.weight(1f)) { onTab(Screen.Addons) }
+        }
+    }
+}
+
+@Composable
+private fun TabItem(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, on: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val tint = if (on) RedBright else if (focused) Color.White else MutedC
+    Column(
+        modifier
+            .clip(RoundedCornerShape(12.dp))
+            .border(1.dp, if (focused) Color.White else Color.Transparent, RoundedCornerShape(12.dp))
+            .background(if (on) Color(0x24E50914) else Color.Transparent, RoundedCornerShape(12.dp))
+            .clickable(interactionSource = interaction, indication = null) { onClick() }
+            .padding(vertical = 7.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(22.dp))
+        Text(label, color = tint, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 3.dp))
     }
 }
 
@@ -433,15 +574,15 @@ private fun UpdateCard(version: String, notes: String, onDismiss: () -> Unit) {
     }
 }
 
-// ---------- home ----------
+// ---------- home (content rows, Stremio-style) ----------
 @Composable
-private fun HomeScreen(onOpen: (Addon) -> Unit) {
+private fun HomeScreen(
+    st: HomeUiState,
+    onOpen: (Addon, MetaItem) -> Unit,
+    onSeeAll: (Addon, CatalogRef) -> Unit,
+    onGoAddons: () -> Unit,
+) {
     val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var addons by remember { mutableStateOf(loadAddons(ctx)) }
-    var url by remember { mutableStateOf("") }
-    var status by remember { mutableStateOf("") }
-    var statusErr by remember { mutableStateOf(false) }
     var update by remember { mutableStateOf<Updates.Release?>(null) }
 
     // Best-effort update check against GitHub Releases, once per Home entry.
@@ -456,38 +597,203 @@ private fun HomeScreen(onOpen: (Addon) -> Unit) {
         if (Updates.isNewer(rel.version, current) && rel.version != dismissed) update = rel
     }
 
+    // Build content rows: each addon's first catalogs, shown as they load.
+    // Kept unless the addon list changed or the rows are older than 5 minutes.
+    LaunchedEffect(st.refreshKey) {
+        val addons = loadAddons(ctx)
+        st.hasAddons = addons.isNotEmpty()
+        val sig = addons.joinToString("|") { it.manifestUrl }
+        if (st.sig == sig && st.rows.isNotEmpty() && System.currentTimeMillis() - st.builtAt < 300_000) return@LaunchedEffect
+        st.sig = sig
+        st.loading = true
+        val rows = mutableListOf<CatRow>()
+        st.rows = emptyList()
+        for (a in addons) {
+            runCatching {
+                val cats = manifestFor(a.manifestUrl).second
+                for (c in cats.take(3)) {
+                    runCatching {
+                        val items = Stremio.loadCatalog(a.base, c, null).take(15)
+                        if (items.isNotEmpty()) { rows.add(CatRow(a, c, items)); st.rows = rows.toList() }
+                    }
+                }
+            }
+        }
+        st.builtAt = System.currentTimeMillis()
+        st.loading = false
+    }
+
+    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp).padding(top = 16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
+            Text("◆ ", color = Red, fontSize = 22.sp, fontWeight = FontWeight.Black)
+            Text(
+                "NEBULA", fontSize = 24.sp, fontWeight = FontWeight.Black, letterSpacing = 5.sp,
+                style = LocalTextStyle.current.copy(
+                    brush = Brush.linearGradient(listOf(Color.White, Color(0xFFFFC2C6), RedBright))
+                ),
+            )
+        }
+        update?.let { rel ->
+            UpdateCard(
+                version = rel.version,
+                notes = rel.notes,
+                onDismiss = {
+                    ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                        .putString("updateDismissed", rel.version).apply()
+                    update = null
+                },
+            )
+        }
+        when {
+            !st.hasAddons -> Column(
+                Modifier.fillMaxWidth().padding(top = 36.dp)
+                    .background(Brush.linearGradient(GlassGrad), RoundedCornerShape(20.dp))
+                    .border(1.dp, LineC, RoundedCornerShape(20.dp)).padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text("Nothing here yet", color = TextC, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "Add an add-on and its catalogs fill this screen.",
+                    color = MutedC, fontSize = 14.sp, textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 6.dp, bottom = 16.dp),
+                )
+                Button(
+                    onClick = onGoAddons,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .shadow(10.dp, RoundedCornerShape(12.dp), ambientColor = Red, spotColor = Red)
+                        .background(Brush.linearGradient(RedGrad), RoundedCornerShape(12.dp)),
+                ) { Text("＋ Add an add-on", fontWeight = FontWeight.Bold) }
+            }
+            st.rows.isEmpty() && st.loading -> {
+                val a = shimmerAlpha()
+                Column {
+                    repeat(2) {
+                        Box(Modifier.padding(top = 18.dp, bottom = 10.dp).width(180.dp).height(16.dp)
+                            .clip(RoundedCornerShape(8.dp)).background(Surface2.copy(alpha = a)))
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            repeat(4) {
+                                Box(Modifier.width(210.dp).aspectRatio(16f / 9f)
+                                    .clip(RoundedCornerShape(11.dp)).background(Surface2.copy(alpha = a)))
+                            }
+                        }
+                    }
+                }
+            }
+            st.rows.isEmpty() -> Column(Modifier.padding(top = 30.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Couldn’t reach your add-ons right now.", color = MutedC, fontSize = 14.sp,
+                    modifier = Modifier.padding(bottom = 10.dp))
+                Chip("Retry", false) { st.invalidate() }
+            }
+            else -> LazyColumn(state = st.listState, contentPadding = PaddingValues(bottom = 16.dp)) {
+                items(st.rows, key = { it.addon.manifestUrl + "/" + it.catalog.type + "/" + it.catalog.id }) { r ->
+                    val multi = st.rows.count { it.addon.manifestUrl == r.addon.manifestUrl } > 1
+                    Column {
+                        RowHeader(
+                            r.addon.name,
+                            if (multi) "${r.catalog.name} · ${r.catalog.type.replaceFirstChar { it.uppercase() }}" else null,
+                        ) { onSeeAll(r.addon, r.catalog) }
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            items(r.items) { m ->
+                                MetaCard(m, Modifier.width(if (m.posterShape == "landscape") 210.dp else 124.dp)) { onOpen(r.addon, m) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ---------- search (one query, every add-on) ----------
+@Composable
+private fun SearchScreen(st: SearchUiState, onOpen: (Addon, MetaItem) -> Unit) {
+    val ctx = LocalContext.current
+    LaunchedEffect(st.submitted) {
+        val q = st.submitted.trim()
+        if (q.isEmpty()) { st.sections = emptyList(); st.searchedFor = null; return@LaunchedEffect }
+        if (q == st.searchedFor && st.sections.isNotEmpty()) return@LaunchedEffect
+        st.searching = true
+        val out = mutableListOf<CatRow>()
+        st.sections = emptyList()
+        for (a in loadAddons(ctx)) {
+            runCatching {
+                val cats = manifestFor(a.manifestUrl).second
+                val sc = cats.firstOrNull { it.search } ?: return@runCatching
+                val items = Stremio.loadCatalog(a.base, sc, null, q)
+                if (items.isNotEmpty()) { out.add(CatRow(a, sc, items)); st.sections = out.toList() }
+            }
+        }
+        st.searchedFor = q
+        st.searching = false
+    }
+    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp).padding(top = 16.dp)) {
+        Text("Search", color = TextC, fontSize = 24.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(bottom = 10.dp))
+        OutlinedTextField(
+            value = st.query,
+            onValueChange = { st.query = it },
+            placeholder = { Text("Search across your add-ons", color = MutedC) },
+            singleLine = true,
+            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = MutedC) },
+            trailingIcon = {
+                if (st.query.isNotEmpty() || st.submitted.isNotEmpty()) {
+                    IconButton(onClick = { st.query = ""; st.submitted = "" }) {
+                        Icon(Icons.Filled.Close, contentDescription = "Clear search", tint = MutedC)
+                    }
+                }
+            },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { st.submitted = st.query.trim() }),
+            shape = RoundedCornerShape(999.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = RedBright, unfocusedBorderColor = Line2, cursorColor = Red,
+                focusedTextColor = TextC, unfocusedTextColor = TextC,
+            ),
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+        )
+        when {
+            st.searching && st.sections.isEmpty() ->
+                Text("Searching…", color = MutedC, fontSize = 14.sp, modifier = Modifier.padding(top = 8.dp))
+            st.submitted.isNotBlank() && st.sections.isEmpty() ->
+                Text("No matches for “${st.submitted.trim()}”.", color = MutedC, fontSize = 14.sp, modifier = Modifier.padding(top = 8.dp))
+            else -> LazyColumn(state = st.listState, contentPadding = PaddingValues(bottom = 16.dp)) {
+                items(st.sections, key = { it.addon.manifestUrl + "/" + it.catalog.id }) { r ->
+                    Column {
+                        RowHeader(r.addon.name, "${r.items.size} result" + (if (r.items.size > 1) "s" else ""), null)
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            items(r.items) { m ->
+                                MetaCard(m, Modifier.width(if (m.posterShape == "landscape") 210.dp else 124.dp)) { onOpen(r.addon, m) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ---------- add-ons (manage sources) ----------
+@Composable
+private fun AddonsScreen(onOpen: (Addon) -> Unit, onAddonsChanged: () -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var addons by remember { mutableStateOf(loadAddons(ctx)) }
+    var url by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf("") }
+    var statusErr by remember { mutableStateOf(false) }
+
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        update?.let { rel ->
-            item {
-                UpdateCard(
-                    version = rel.version,
-                    notes = rel.notes,
-                    onDismiss = {
-                        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                            .putString("updateDismissed", rel.version).apply()
-                        update = null
-                    },
-                )
-            }
-        }
         item {
             Column {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("◆ ", color = Red, fontSize = 24.sp, fontWeight = FontWeight.Black)
-                    Text(
-                        "NEBULA", fontSize = 28.sp, fontWeight = FontWeight.Black, letterSpacing = 5.sp,
-                        style = LocalTextStyle.current.copy(
-                            brush = Brush.linearGradient(listOf(Color.White, Color(0xFFFFC2C6), RedBright))
-                        ),
-                    )
-                }
+                Text("Add-ons", color = TextC, fontSize = 24.sp, fontWeight = FontWeight.Black)
                 Text(
-                    "Add a Stremio add-on, browse it, play. HLS · DASH · DASH+ClearKey.",
-                    color = MutedC, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp, bottom = 14.dp),
+                    "Add a Stremio add-on and its catalogs show up on Home. HLS · DASH · DASH+ClearKey.",
+                    color = MutedC, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp, bottom = 10.dp),
                 )
             }
         }
@@ -524,7 +830,7 @@ private fun HomeScreen(onOpen: (Addon) -> Unit) {
                             scope.launch {
                                 runCatching { Stremio.loadManifest(u).first }.onSuccess { a ->
                                     val list = (addons.filterNot { it.manifestUrl == a.manifestUrl } + a)
-                                    saveAddons(ctx, list); addons = list; url = ""
+                                    saveAddons(ctx, list); addons = list; url = ""; onAddonsChanged()
                                     status = "Added ${a.name}"; statusErr = false
                                 }.onFailure { status = "Could not load: ${it.message}"; statusErr = true }
                             }
@@ -578,7 +884,7 @@ private fun HomeScreen(onOpen: (Addon) -> Unit) {
                         }
                         IconButton(onClick = {
                             val list = addons.filterNot { it.manifestUrl == a.manifestUrl }
-                            saveAddons(ctx, list); addons = list
+                            saveAddons(ctx, list); addons = list; onAddonsChanged()
                         }) {
                             Icon(Icons.Filled.Close, contentDescription = "Remove", tint = MutedC, modifier = Modifier.size(18.dp))
                         }
@@ -591,7 +897,7 @@ private fun HomeScreen(onOpen: (Addon) -> Unit) {
 
 // ---------- catalog ----------
 @Composable
-private fun CatalogScreen(addon: Addon, st: CatalogUiState, onBack: () -> Unit, onOpen: (MetaItem) -> Unit) {
+private fun CatalogScreen(addon: Addon, initial: CatalogRef?, st: CatalogUiState, onBack: () -> Unit, onOpen: (MetaItem) -> Unit) {
     var catalogs by st::catalogs
     var current by st::current
     var genre by st::genre
@@ -601,10 +907,19 @@ private fun CatalogScreen(addon: Addon, st: CatalogUiState, onBack: () -> Unit, 
     var loading by st::loading
     var status by st::status
 
-    LaunchedEffect(addon) {
-        if (catalogs.isNotEmpty()) return@LaunchedEffect
+    LaunchedEffect(addon, initial) {
+        if (catalogs.isNotEmpty()) {
+            // arriving via a "See all" that targets a different catalog of this addon
+            val want = initial?.let { i -> catalogs.firstOrNull { it.type == i.type && it.id == i.id } }
+            if (want != null && current != want) { current = want; genre = null; query = ""; submitted = "" }
+            return@LaunchedEffect
+        }
         runCatching { Stremio.loadManifest(addon.manifestUrl).second }
-            .onSuccess { catalogs = it; current = it.firstOrNull(); if (it.isEmpty()) { status = "No catalogs."; loading = false } }
+            .onSuccess {
+                catalogs = it
+                current = initial?.let { i -> it.firstOrNull { c -> c.type == i.type && c.id == i.id } } ?: it.firstOrNull()
+                if (it.isEmpty()) { status = "No catalogs."; loading = false }
+            }
             .onFailure { status = "Failed: ${it.message}"; loading = false }
     }
     LaunchedEffect(current, genre, submitted) {
@@ -688,36 +1003,7 @@ private fun CatalogScreen(addon: Addon, st: CatalogUiState, onBack: () -> Unit, 
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 contentPadding = PaddingValues(bottom = 20.dp),
             ) {
-                items(items) { m ->
-                    FocusCard(shape = RoundedCornerShape(12.dp), onClick = { onOpen(m) }) {
-                        Column(Modifier.padding(2.dp)) {
-                            Box(
-                                Modifier.fillMaxWidth().aspectRatio(thumbRatio(m.posterShape))
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(Brush.linearGradient(listOf(Color(0xFF1C1C24), Color(0xFF0D0D12))))
-                                    .border(1.dp, Color(0x0FFFFFFF), RoundedCornerShape(12.dp)),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                if (m.poster != null) {
-                                    AsyncImage(
-                                        model = m.poster, contentDescription = m.name,
-                                        contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
-                                    )
-                                } else {
-                                    Text(
-                                        m.name.filter { it.isLetterOrDigit() }.take(2).uppercase().ifEmpty { "••" },
-                                        color = Color(0xFF3A3A45), fontSize = 22.sp, fontWeight = FontWeight.Black,
-                                    )
-                                }
-                            }
-                            Text(
-                                m.name, color = Color(0xFFE8E8EA), fontSize = 13.sp, fontWeight = FontWeight.Medium,
-                                maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 16.sp,
-                                modifier = Modifier.padding(top = 7.dp, start = 2.dp, end = 2.dp),
-                            )
-                        }
-                    }
-                }
+                items(items) { m -> MetaCard(m) { onOpen(m) } }
             }
         }
     }
