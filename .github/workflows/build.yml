@@ -48,9 +48,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           APK=$(find app/build/outputs/apk/release -name '*.apk' | head -1)
-          cp "$APK" Nebula-1.15.0.apk
+          cp "$APK" Nebula-1.15.1.apk
           cp "$APK" Nebula.apk
-          gh release delete v1.15.0 -y --cleanup-tag 2>/dev/null || true
-          gh release create v1.15.0 Nebula-1.15.0.apk Nebula.apk \
-            --title "Nebula (Android phone + TV) v1.15.0" \
-            --notes "New: Picture-in-picture. Press Home while a match plays (or tap the new PiP button in the player) and the video keeps going in a small floating window while you use other apps — closing the floating window stops playback. On Android 12+ PiP starts automatically when you leave the app mid-playback. Signed with the same permanent key, so it installs over the top. Install (phone): allow 'install unknown apps' and tap the APK. Install (TV): Downloader code 7664693 (or da.gd/nebulaapk). Nebula.apk is a stable-named copy so releases/latest/download/Nebula.apk, code 7664693 and da.gd/nebulaapk always point at the newest build."
+          gh release delete v1.15.1 -y --cleanup-tag 2>/dev/null || true
+          gh release create v1.15.1 Nebula-1.15.1.apk Nebula.apk \
+            --title "Nebula (Android phone + TV) v1.15.1" \
+            --notes "Fixes the app icon: the logo was drawn off-centre (red disc pushed to the top with the play mark hanging off it) — it is now properly centred. Also includes v1.15.0's Picture-in-picture: press Home while a match plays (or tap the PiP button) and the video keeps going in a small floating window; on Android 12+ PiP starts automatically. Signed with the same permanent key, so it installs over the top. Install (phone): allow 'install unknown apps' and tap the APK. Install (TV): Downloader code 7664693 (or da.gd/nebulaapk). Nebula.apk is a stable-named copy so releases/latest/download/Nebula.apk, code 7664693 and da.gd/nebulaapk always point at the newest build."
