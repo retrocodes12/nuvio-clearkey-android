@@ -1472,8 +1472,8 @@ private fun PlayerScreen(
                     }
             )
         }
-        // Party badge: room code + member count, always visible while in a party.
-        if (!pip && partyUi.active()) {
+        // Party badge: room code + member count, shown with the rest of the chrome.
+        if (!pip && controllerVisible && partyUi.active()) {
             Text(
                 "${partyUi.code} · ${partyUi.count}",
                 color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Black,
@@ -1484,8 +1484,8 @@ private fun PlayerScreen(
                     .padding(horizontal = 10.dp, vertical = 5.dp)
             )
         }
-        // PiP + party + quality + audio pickers — pickers only when the stream offers a choice.
-        if (!pip) Column(
+        // PiP + party + quality + audio pickers — these are chrome: they hide with the controller.
+        if (!pip && controllerVisible) Column(
             Modifier.align(Alignment.TopEnd).padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
